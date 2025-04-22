@@ -1,0 +1,14 @@
+
+#
+# try and convert goodleap
+POST http://localhost:3000/api/convert
+Content-Type: application/json
+
+{
+"url": "https://developer.goodleap.com/",
+"username": "loanpal",
+"password": "Cle@nEnergy!",
+"filename": "goodleap.pdf",
+"traverseLinks": true,
+"maxPages": 100
+}

@@ -1,0 +1,17 @@
+{
+  "name": "website-to-pdf-mcp",
+  "version": "1.0.0",
+  "description": "MCP server that fetches websites and converts them to PDF",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "chromium": "^3.0.3",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "pdf-lib": "^1.17.1",
+    "puppeteer": "^21.0.0"
+  }
+}
