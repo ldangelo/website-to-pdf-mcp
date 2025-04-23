@@ -18,15 +18,15 @@
     "turndown": "^7.2.0"
   },
   "mcp": {
-    "title": "Website to PDF & URL Traversal",
-    "description": "MCP server that fetches websites, converts them to PDF/Markdown or traverses links and returns URLs",
+    "title": "Website to PDF/Markdown & URL Traversal",
+    "description": "MCP server that fetches websites, converts them to PDF/Markdown documents or traverses links and returns URLs",
     "iconUrl": "https://raw.githubusercontent.com/ldangelo/website-to-pdf-mcp/main/icon.png",
     "endpoints": [
       {
         "route": "/api/convert",
         "method": "post",
         "title": "Convert Website to PDF",
-        "description": "Fetch a website and convert it to PDF, with optional link traversal",
+        "description": "Fetch a website and convert it to PDF document, with optional link traversal",
         "inputSchema": {
           "type": "object",
           "required": [
@@ -44,11 +44,6 @@
             "password": {
               "type": "string",
               "description": "Optional password for authentication"
-            },
-            "filename": {
-              "type": "string",
-              "description": "Optional custom filename for the output PDF",
-              "default": "output.pdf"
             },
             "traverseLinks": {
               "type": "boolean",
@@ -98,7 +93,7 @@
         "route": "/api/to-markdown",
         "method": "post",
         "title": "Convert Website to Markdown",
-        "description": "Fetch a website and convert it to Markdown format, with optional link traversal",
+        "description": "Fetch a website and convert it to Markdown document, with optional link traversal",
         "inputSchema": {
           "type": "object",
           "required": [
@@ -116,11 +111,6 @@
             "password": {
               "type": "string",
               "description": "Optional password for authentication"
-            },
-            "filename": {
-              "type": "string",
-              "description": "Optional custom filename for the output markdown file",
-              "default": "output.md"
             },
             "traverseLinks": {
               "type": "boolean",

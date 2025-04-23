@@ -12,7 +12,7 @@ const port = process.env.PORT || 3000;
 app.use(express.json());
 
 // Function to convert website to PDF
-async function websiteToPdf(url, username, password, outputPath, traverseLinks = false, maxPages = 10) {
+async function websiteToPdf(url, username, password, traverseLinks = false, maxPages = 10) {
   const browser = await puppeteer.launch({
     headless: "false",
     defaultViewport: null,
@@ -36,7 +36,8 @@ async function websiteToPdf(url, username, password, outputPath, traverseLinks =
     
     const visitedUrls = new Set();
     const urlsToVisit = [url];
-    const pdfs = [];
+    const pdfBuffers = [];
+    const pageInfo = [];
     
     while (urlsToVisit.length > 0 && visitedUrls.size < maxPages) {
       const currentUrl = urlsToVisit.shift();
@@ -62,14 +63,13 @@ async function websiteToPdf(url, username, password, outputPath, traverseLinks =
       // Ensure the page is fully loaded
       await page.waitForTimeout(2000);
 
+      // Get page title
+      const title = await page.title();
+      pageInfo.push({ url: currentUrl, title });
+
       // Generate PDF for this page
-      const tempPdfPath = `${outputPath.replace('.pdf', '')}_temp_${visitedUrls.size}.pdf`;
-      await page.pdf({
-        ...pdfOptions,
-        path: tempPdfPath,
-      });
-      
-      pdfs.push(tempPdfPath);
+      const pdfBuffer = await page.pdf(pdfOptions);
+      pdfBuffers.push(pdfBuffer);
       
       // If traversing links is enabled, collect links from the page
       if (traverseLinks) {
@@ -102,28 +102,26 @@ async function websiteToPdf(url, username, password, outputPath, traverseLinks =
       }
     }
     
-    // Merge PDFs into a single file
-    if (pdfs.length > 0) {
+    // Merge PDFs into a single buffer
+    if (pdfBuffers.length > 0) {
       const { PDFDocument } = require('pdf-lib');
-      const fs = require('fs');
       
       const mergedPdf = await PDFDocument.create();
       
-      for (const pdfPath of pdfs) {
-        const pdfBytes = fs.readFileSync(pdfPath);
-        const pdf = await PDFDocument.load(pdfBytes);
+      for (const pdfBuffer of pdfBuffers) {
+        const pdf = await PDFDocument.load(pdfBuffer);
         const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
         copiedPages.forEach(page => mergedPdf.addPage(page));
-        
-        // Remove temp file
-        fs.unlinkSync(pdfPath);
       }
       
       const mergedPdfBytes = await mergedPdf.save();
-      fs.writeFileSync(outputPath, mergedPdfBytes);
+      return {
+        content: mergedPdfBytes,
+        pages: pageInfo
+      };
     }
-
-    return outputPath;
+    
+    return { content: Buffer.from(''), pages: [] };
   } catch (error) {
     console.error("Error converting website to PDF:", error);
     throw error;
@@ -139,7 +137,6 @@ app.post("/api/convert", async (req, res) => {
       url, 
       username, 
       password, 
-      filename = "output.pdf", 
       traverseLinks = false, 
       maxPages = 10 
     } = req.body;
@@ -148,24 +145,18 @@ app.post("/api/convert", async (req, res) => {
       return res.status(400).json({ error: "URL is required" });
     }
 
-    // Create output directory if it doesn't exist
-    const outputDir = path.join(__dirname, "../output");
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-
-    const outputPath = path.join(outputDir, filename);
-
     // Convert website to PDF
-    await websiteToPdf(url, username, password, outputPath, traverseLinks, maxPages);
+    const result = await websiteToPdf(url, username, password, traverseLinks, maxPages);
 
-    res.json({
-      success: true,
-      message: traverseLinks 
-        ? `Website and linked pages converted to PDF successfully (up to ${maxPages} pages)` 
-        : "Website converted to PDF successfully",
-      filePath: outputPath,
-    });
+    // Set content-type for PDF response
+    res.setHeader('Content-Type', 'application/pdf');
+    
+    // Set a filename for the download
+    const sanitizedUrl = url.replace(/https?:\/\//, '').replace(/[^a-z0-9]/gi, '_');
+    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedUrl}.pdf"`);
+    
+    // Send the PDF content
+    res.send(result.content);
   } catch (error) {
     console.error("Error handling request:", error);
     res.status(500).json({ error: "Failed to convert website to PDF" });
@@ -268,7 +259,7 @@ app.post("/api/traverse", async (req, res) => {
 });
 
 // Function to convert website to Markdown
-async function websiteToMarkdown(url, username, password, outputPath, traverseLinks = false, maxPages = 10) {
+async function websiteToMarkdown(url, username, password, traverseLinks = false, maxPages = 10) {
   const browser = await puppeteer.launch({
     headless: "false",
     defaultViewport: null,
@@ -283,7 +274,8 @@ async function websiteToMarkdown(url, username, password, outputPath, traverseLi
     
     const visitedUrls = new Set();
     const urlsToVisit = [url];
-    const markdownFiles = [];
+    const markdownContents = [];
+    const pageInfo = [];
     
     while (urlsToVisit.length > 0 && visitedUrls.size < maxPages) {
       const currentUrl = urlsToVisit.shift();
@@ -314,12 +306,10 @@ async function websiteToMarkdown(url, username, password, outputPath, traverseLi
       const title = await page.title();
       const markdown = turndownService.turndown(content);
       
-      // Create a markdown file with the page title and URL as header
-      const fileContent = `# ${title}\n\nURL: ${currentUrl}\n\n${markdown}`;
-      const filename = `${outputPath.replace('.md', '')}_${visitedUrls.size}.md`;
-      fs.writeFileSync(filename, fileContent);
-      
-      markdownFiles.push(filename);
+      // Create markdown content with the page title and URL as header
+      const pageMarkdown = `# ${title}\n\nURL: ${currentUrl}\n\n${markdown}`;
+      markdownContents.push(pageMarkdown);
+      pageInfo.push({ url: currentUrl, title });
       
       // If traversing links is enabled, collect links from the page
       if (traverseLinks) {
@@ -352,28 +342,16 @@ async function websiteToMarkdown(url, username, password, outputPath, traverseLi
       }
     }
     
-    // Merge markdown files into a single file if traversing links
-    if (traverseLinks && markdownFiles.length > 1) {
-      const mergedContent = markdownFiles.map(file => fs.readFileSync(file, 'utf8')).join('\n\n---\n\n');
-      fs.writeFileSync(outputPath, mergedContent);
-      
-      // Delete individual files
-      markdownFiles.forEach(file => {
-        if (file !== outputPath) {
-          fs.unlinkSync(file);
-        }
-      });
-      
-      return outputPath;
-    } else if (markdownFiles.length === 1) {
-      // Rename the single file to the requested output path if needed
-      if (markdownFiles[0] !== outputPath) {
-        fs.renameSync(markdownFiles[0], outputPath);
-      }
-      return outputPath;
+    // Merge markdown content
+    if (markdownContents.length > 0) {
+      const mergedContent = markdownContents.join('\n\n---\n\n');
+      return {
+        content: mergedContent,
+        pages: pageInfo
+      };
     }
     
-    return null;
+    return { content: '', pages: [] };
   } catch (error) {
     console.error("Error converting website to Markdown:", error);
     throw error;
@@ -389,7 +367,6 @@ app.post("/api/to-markdown", async (req, res) => {
       url, 
       username, 
       password, 
-      filename = "output.md", 
       traverseLinks = false, 
       maxPages = 10 
     } = req.body;
@@ -398,31 +375,30 @@ app.post("/api/to-markdown", async (req, res) => {
       return res.status(400).json({ error: "URL is required" });
     }
 
-    // Create output directory if it doesn't exist
-    const outputDir = path.join(__dirname, "../output");
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-
-    const outputPath = path.join(outputDir, filename);
-
     // Convert website to Markdown
-    await websiteToMarkdown(url, username, password, outputPath, traverseLinks, maxPages);
+    const result = await websiteToMarkdown(url, username, password, traverseLinks, maxPages);
 
-    res.json({
-      success: true,
-      message: traverseLinks 
-        ? `Website and linked pages converted to Markdown successfully (up to ${maxPages} pages)` 
-        : "Website converted to Markdown successfully",
-      filePath: outputPath,
-    });
+    // Set content-type for text response
+    res.setHeader('Content-Type', 'text/markdown');
+    
+    // Set a filename for the download
+    const sanitizedUrl = url.replace(/https?:\/\//, '').replace(/[^a-z0-9]/gi, '_');
+    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedUrl}.md"`);
+    
+    // Send the Markdown content
+    res.send(result.content);
   } catch (error) {
     console.error("Error handling request:", error);
     res.status(500).json({ error: "Failed to convert website to Markdown" });
   }
 });
 
-// Start the server
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+// Start the server only if this file is run directly
+if (require.main === module) {
+  app.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+  });
+}
+
+// Export the app for testing
+module.exports = app;

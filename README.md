@@ -1,6 +1,6 @@
 # Website to PDF/Markdown MCP Server
 
-This MCP server fetches websites (including those behind authentication) and converts them to PDF or Markdown documents. It can also traverse links on a webpage and add them to the same output file or return the discovered URLs.
+This MCP server fetches websites (including those behind authentication) and converts them to PDF or Markdown documents. It can also traverse links on a webpage and include them in the generated documents or return the discovered URLs.
 
 ## Features
 
@@ -42,7 +42,6 @@ POST /api/convert
   "url": "https://example.com",
   "username": "optional-username",
   "password": "optional-password",
-  "filename": "optional-custom-filename.pdf",
   "traverseLinks": true,
   "maxPages": 10
 }
@@ -53,19 +52,18 @@ POST /api/convert
 - `url`: (Required) The URL to convert to PDF
 - `username`: (Optional) Username for authentication
 - `password`: (Optional) Password for authentication
-- `filename`: (Optional) Custom filename for the output PDF (default: "output.pdf")
 - `traverseLinks`: (Optional) Whether to traverse links on the page (default: false)
 - `maxPages`: (Optional) Maximum number of pages to process when traversing links (default: 10)
 
 **Response:**
 
-```json
-{
-  "success": true,
-  "message": "Website and linked pages converted to PDF successfully (up to 10 pages)",
-  "filePath": "/path/to/output.pdf"
-}
+The response will be the PDF document with appropriate content-type headers:
 ```
+Content-Type: application/pdf
+Content-Disposition: attachment; filename="example_com.pdf"
+```
+
+The binary PDF content is returned directly in the response body.
 
 ### Convert Website to Markdown
 
@@ -80,7 +78,6 @@ POST /api/to-markdown
   "url": "https://example.com",
   "username": "optional-username",
   "password": "optional-password",
-  "filename": "optional-custom-filename.md",
   "traverseLinks": true,
   "maxPages": 10
 }
@@ -91,19 +88,18 @@ POST /api/to-markdown
 - `url`: (Required) The URL to convert to Markdown
 - `username`: (Optional) Username for authentication
 - `password`: (Optional) Password for authentication
-- `filename`: (Optional) Custom filename for the output markdown file (default: "output.md")
 - `traverseLinks`: (Optional) Whether to traverse links on the page (default: false)
 - `maxPages`: (Optional) Maximum number of pages to process when traversing links (default: 10)
 
 **Response:**
 
-```json
-{
-  "success": true,
-  "message": "Website and linked pages converted to Markdown successfully (up to 10 pages)",
-  "filePath": "/path/to/output.md"
-}
+The response will be the Markdown document with appropriate content-type headers:
 ```
+Content-Type: text/markdown
+Content-Disposition: attachment; filename="example_com.md"
+```
+
+The Markdown content is returned directly in the response body.
 
 ### Traverse Website and Return URLs
 
