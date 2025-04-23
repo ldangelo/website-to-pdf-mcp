@@ -1,6 +1,6 @@
 # Website to PDF MCP Server
 
-This MCP server fetches websites (including those behind authentication) and converts them to PDF documents. It can also traverse links on a webpage and add them to the same PDF file.
+This MCP server fetches websites (including those behind authentication) and converts them to PDF documents. It can also traverse links on a webpage and add them to the same PDF file or return the discovered URLs.
 
 ## Features
 
@@ -117,3 +117,45 @@ You can customize the PDF generation by modifying the `websiteToPdf` function in
 ## Authentication Handling
 
 The default implementation assumes a simple username/password form. You may need to customize the authentication logic based on the specific websites you're targeting.
+
+## Using as a Claude MCP
+
+This server is configured as a Claude MCP (Managed Claude Plugin) that can be used directly with Claude. To use it:
+
+### Self-Hosting Setup
+
+1. Host this server on a platform like Heroku, Vercel, or your own infrastructure
+2. Make sure the server is publicly accessible via HTTPS
+3. Add an icon.png file to your repository
+
+### Installing in Claude
+
+1. Open Claude in your browser and navigate to the Plugins section
+2. Click "Create a plugin"
+3. Enter the URL where your MCP server is hosted
+4. Claude will discover the API endpoints and create the plugin interface
+5. Save and enable the plugin
+
+### Usage in Claude
+
+Once installed, you can use the MCP directly in your conversations with Claude:
+
+- "Convert example.com to a PDF"
+- "Get all the URLs from example.com"
+- "Convert the website with authentication using username 'myuser' and password 'mypass'"
+
+The plugin provides two main functions:
+1. Converting websites to PDF
+2. Traversing websites and returning discovered URLs
+
+### Local Development
+
+For local development, you can use tools like ngrok to expose your local server to the internet:
+
+```
+npm start
+# In a separate terminal
+ngrok http 3000
+```
+
+Then use the ngrok URL when setting up the MCP in Claude.
