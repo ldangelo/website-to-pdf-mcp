@@ -8,10 +8,90 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.10.2",
     "chromium": "^3.0.3",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "pdf-lib": "^1.17.1",
     "puppeteer": "^21.0.0"
+  },
+  "mcp": {
+    "title": "Website to PDF & URL Traversal",
+    "description": "MCP server that fetches websites, converts them to PDF or traverses links and returns URLs",
+    "iconUrl": "https://raw.githubusercontent.com/ldangelo/website-to-pdf-mcp/main/icon.png",
+    "endpoints": [
+      {
+        "route": "/api/convert",
+        "method": "post",
+        "title": "Convert Website to PDF",
+        "description": "Fetch a website and convert it to PDF, with optional link traversal",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The URL to convert to PDF"
+            },
+            "username": {
+              "type": "string",
+              "description": "Optional username for authentication"
+            },
+            "password": {
+              "type": "string",
+              "description": "Optional password for authentication"
+            },
+            "filename": {
+              "type": "string",
+              "description": "Optional custom filename for the output PDF",
+              "default": "output.pdf"
+            },
+            "traverseLinks": {
+              "type": "boolean",
+              "description": "Whether to traverse links on the page",
+              "default": false
+            },
+            "maxPages": {
+              "type": "number",
+              "description": "Maximum number of pages to process when traversing links",
+              "default": 10
+            }
+          }
+        }
+      },
+      {
+        "route": "/api/traverse",
+        "method": "post",
+        "title": "Traverse Website Links",
+        "description": "Traverse links on a website and return the URLs without creating PDFs",
+        "inputSchema": {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The URL to start traversal from"
+            },
+            "username": {
+              "type": "string",
+              "description": "Optional username for authentication"
+            },
+            "password": {
+              "type": "string",
+              "description": "Optional password for authentication"
+            },
+            "maxPages": {
+              "type": "number",
+              "description": "Maximum number of pages to traverse",
+              "default": 10
+            }
+          }
+        }
+      }
+    ]
   }
 }
