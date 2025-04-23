@@ -3,6 +3,7 @@ const puppeteer = require("puppeteer");
 const chromium = require("chromium");
 const path = require("path");
 const fs = require("fs");
+const TurndownService = require("turndown");
 require("dotenv").config();
 
 const app = express();
@@ -263,6 +264,161 @@ app.post("/api/traverse", async (req, res) => {
   } catch (error) {
     console.error("Error traversing website:", error);
     res.status(500).json({ error: "Failed to traverse website" });
+  }
+});
+
+// Function to convert website to Markdown
+async function websiteToMarkdown(url, username, password, outputPath, traverseLinks = false, maxPages = 10) {
+  const browser = await puppeteer.launch({
+    headless: "false",
+    defaultViewport: null,
+    executablePath: String(chromium.path),
+    ignoreDefaultArgs: ["--disable-sync"],
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+
+  try {
+    const page = await browser.newPage();
+    const turndownService = new TurndownService();
+    
+    const visitedUrls = new Set();
+    const urlsToVisit = [url];
+    const markdownFiles = [];
+    
+    while (urlsToVisit.length > 0 && visitedUrls.size < maxPages) {
+      const currentUrl = urlsToVisit.shift();
+      
+      if (visitedUrls.has(currentUrl)) continue;
+      visitedUrls.add(currentUrl);
+      
+      console.log(`Visiting: ${currentUrl}`);
+
+      // Navigate to the URL
+      await page.goto(currentUrl, { waitUntil: "networkidle2" });
+
+      // Handle login if credentials are provided (only for first page)
+      if (username && password && visitedUrls.size === 1) {
+        // This is a simplified login flow and might need customization based on the target site
+        await page.type('input[name="username"]', username);
+        await page.type('input[name="password"]', password);
+        await Promise.all([
+          page.click('button[type="submit"]'),
+        ]);
+      }
+
+      // Ensure the page is fully loaded
+      await page.waitForTimeout(2000);
+
+      // Get the page content and convert to markdown
+      const content = await page.content();
+      const title = await page.title();
+      const markdown = turndownService.turndown(content);
+      
+      // Create a markdown file with the page title and URL as header
+      const fileContent = `# ${title}\n\nURL: ${currentUrl}\n\n${markdown}`;
+      const filename = `${outputPath.replace('.md', '')}_${visitedUrls.size}.md`;
+      fs.writeFileSync(filename, fileContent);
+      
+      markdownFiles.push(filename);
+      
+      // If traversing links is enabled, collect links from the page
+      if (traverseLinks) {
+        const baseUrl = new URL(currentUrl).origin;
+        const links = await page.evaluate((baseUrl) => {
+          return Array.from(document.querySelectorAll('a[href]'))
+            .map(a => {
+              let href = a.href;
+              if (href.startsWith('/')) {
+                href = baseUrl + href;
+              }
+              return href;
+            })
+            .filter(href => 
+              href.startsWith(baseUrl) && 
+              !href.includes('#') && 
+              !href.endsWith('.pdf') && 
+              !href.endsWith('.zip') && 
+              !href.endsWith('.jpg') && 
+              !href.endsWith('.png')
+            );
+        }, baseUrl);
+        
+        // Add new links to the queue
+        for (const link of links) {
+          if (!visitedUrls.has(link) && !urlsToVisit.includes(link)) {
+            urlsToVisit.push(link);
+          }
+        }
+      }
+    }
+    
+    // Merge markdown files into a single file if traversing links
+    if (traverseLinks && markdownFiles.length > 1) {
+      const mergedContent = markdownFiles.map(file => fs.readFileSync(file, 'utf8')).join('\n\n---\n\n');
+      fs.writeFileSync(outputPath, mergedContent);
+      
+      // Delete individual files
+      markdownFiles.forEach(file => {
+        if (file !== outputPath) {
+          fs.unlinkSync(file);
+        }
+      });
+      
+      return outputPath;
+    } else if (markdownFiles.length === 1) {
+      // Rename the single file to the requested output path if needed
+      if (markdownFiles[0] !== outputPath) {
+        fs.renameSync(markdownFiles[0], outputPath);
+      }
+      return outputPath;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error("Error converting website to Markdown:", error);
+    throw error;
+  } finally {
+    await browser.close();
+  }
+}
+
+// MCP endpoint to convert website to Markdown
+app.post("/api/to-markdown", async (req, res) => {
+  try {
+    const { 
+      url, 
+      username, 
+      password, 
+      filename = "output.md", 
+      traverseLinks = false, 
+      maxPages = 10 
+    } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ error: "URL is required" });
+    }
+
+    // Create output directory if it doesn't exist
+    const outputDir = path.join(__dirname, "../output");
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
+    }
+
+    const outputPath = path.join(outputDir, filename);
+
+    // Convert website to Markdown
+    await websiteToMarkdown(url, username, password, outputPath, traverseLinks, maxPages);
+
+    res.json({
+      success: true,
+      message: traverseLinks 
+        ? `Website and linked pages converted to Markdown successfully (up to ${maxPages} pages)` 
+        : "Website converted to Markdown successfully",
+      filePath: outputPath,
+    });
+  } catch (error) {
+    console.error("Error handling request:", error);
+    res.status(500).json({ error: "Failed to convert website to Markdown" });
   }
 });
 
