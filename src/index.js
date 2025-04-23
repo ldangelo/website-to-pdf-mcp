@@ -171,6 +171,101 @@ app.post("/api/convert", async (req, res) => {
   }
 });
 
+// MCP endpoint to traverse website and return URLs
+app.post("/api/traverse", async (req, res) => {
+  try {
+    const { 
+      url, 
+      username, 
+      password, 
+      maxPages = 10 
+    } = req.body;
+
+    if (!url) {
+      return res.status(400).json({ error: "URL is required" });
+    }
+
+    const browser = await puppeteer.launch({
+      headless: "false",
+      defaultViewport: null,
+      executablePath: String(chromium.path),
+      ignoreDefaultArgs: ["--disable-sync"],
+      args: ["--no-sandbox", "--disable-setuid-sandbox"],
+    });
+
+    try {
+      const page = await browser.newPage();
+      const visitedUrls = new Set();
+      const urlsToVisit = [url];
+      const urlList = [];
+      
+      while (urlsToVisit.length > 0 && visitedUrls.size < maxPages) {
+        const currentUrl = urlsToVisit.shift();
+        
+        if (visitedUrls.has(currentUrl)) continue;
+        visitedUrls.add(currentUrl);
+        urlList.push(currentUrl);
+        
+        console.log(`Visiting: ${currentUrl}`);
+
+        // Navigate to the URL
+        await page.goto(currentUrl, { waitUntil: "networkidle2" });
+
+        // Handle login if credentials are provided (only for first page)
+        if (username && password && visitedUrls.size === 1) {
+          await page.type('input[name="username"]', username);
+          await page.type('input[name="password"]', password);
+          await Promise.all([
+            page.click('button[type="submit"]'),
+          ]);
+        }
+
+        // Ensure the page is fully loaded
+        await page.waitForTimeout(2000);
+        
+        // Collect links from the page
+        const baseUrl = new URL(currentUrl).origin;
+        const links = await page.evaluate((baseUrl) => {
+          return Array.from(document.querySelectorAll('a[href]'))
+            .map(a => {
+              let href = a.href;
+              if (href.startsWith('/')) {
+                href = baseUrl + href;
+              }
+              return href;
+            })
+            .filter(href => 
+              href.startsWith(baseUrl) && 
+              !href.includes('#') && 
+              !href.endsWith('.pdf') && 
+              !href.endsWith('.zip') && 
+              !href.endsWith('.jpg') && 
+              !href.endsWith('.png')
+            );
+        }, baseUrl);
+        
+        // Add new links to the queue
+        for (const link of links) {
+          if (!visitedUrls.has(link) && !urlsToVisit.includes(link)) {
+            urlsToVisit.push(link);
+          }
+        }
+      }
+      
+      res.json({
+        success: true,
+        message: `Website traversed successfully (found ${urlList.length} URLs)`,
+        urls: urlList
+      });
+    } finally {
+      await browser.close();
+    }
+  } catch (error) {
+    console.error("Error traversing website:", error);
+    res.status(500).json({ error: "Failed to traverse website" });
+  }
+});
+
 // Start the server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

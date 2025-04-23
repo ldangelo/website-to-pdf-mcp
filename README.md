@@ -8,6 +8,7 @@ This MCP server fetches websites (including those behind authentication) and con
 - Traverse links on a webpage and convert multiple pages to a single PDF
 - Support for authentication via username and password
 - Configurable maximum page limit for link traversal
+- Traverse website links and return URLs without PDF conversion
 
 ## Setup
 
@@ -62,6 +63,45 @@ POST /api/convert
   "success": true,
   "message": "Website and linked pages converted to PDF successfully (up to 10 pages)",
   "filePath": "/path/to/output.pdf"
+}
+```
+
+### Traverse Website and Return URLs
+
+```
+POST /api/traverse
+```
+
+**Request Body:**
+
+```json
+{
+  "url": "https://example.com",
+  "username": "optional-username",
+  "password": "optional-password",
+  "maxPages": 10
+}
+```
+
+**Parameters:**
+
+- `url`: (Required) The URL to start traversal from
+- `username`: (Optional) Username for authentication
+- `password`: (Optional) Password for authentication
+- `maxPages`: (Optional) Maximum number of pages to traverse (default: 10)
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Website traversed successfully (found 8 URLs)",
+  "urls": [
+    "https://example.com",
+    "https://example.com/page1",
+    "https://example.com/page2",
+    ...
+  ]
 }
 ```
 
