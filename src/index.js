@@ -12,7 +12,7 @@ const port = process.env.PORT || 3000;
 app.use(express.json());
 
 // Function to convert website to PDF
-async function websiteToPdf(url, username, password, traverseLinks = false, maxPages = 10) {
+async function websiteToPdf(url, username, password, traverseLinks, maxPages) {
   const browser = await puppeteer.launch({
     headless: "false",
     defaultViewport: null,
@@ -33,18 +33,24 @@ async function websiteToPdf(url, username, password, traverseLinks = false, maxP
         left: "20px",
       },
     };
-    
+
     const visitedUrls = new Set();
-    const urlsToVisit = [url];
+    const urlsToVisit = await traverseWebsite(
+      url,
+      username,
+      password,
+      traverseLinks,
+      maxPages,
+    );
     const pdfBuffers = [];
     const pageInfo = [];
-    
+
     while (urlsToVisit.length > 0 && visitedUrls.size < maxPages) {
       const currentUrl = urlsToVisit.shift();
-      
+
       if (visitedUrls.has(currentUrl)) continue;
       visitedUrls.add(currentUrl);
-      
+
       console.log(`Visiting: ${currentUrl}`);
 
       // Navigate to the URL
@@ -55,9 +61,7 @@ async function websiteToPdf(url, username, password, traverseLinks = false, maxP
         // This is a simplified login flow and might need customization based on the target site
         await page.type('input[name="username"]', username);
         await page.type('input[name="password"]', password);
-        await Promise.all([
-          page.click('button[type="submit"]'),
-        ]);
+        await Promise.all([page.click('button[type="submit"]')]);
       }
 
       // Ensure the page is fully loaded
@@ -70,58 +74,31 @@ async function websiteToPdf(url, username, password, traverseLinks = false, maxP
       // Generate PDF for this page
       const pdfBuffer = await page.pdf(pdfOptions);
       pdfBuffers.push(pdfBuffer);
-      
-      // If traversing links is enabled, collect links from the page
-      if (traverseLinks) {
-        const baseUrl = new URL(currentUrl).origin;
-        const links = await page.evaluate((baseUrl) => {
-          return Array.from(document.querySelectorAll('a[href]'))
-            .map(a => {
-              let href = a.href;
-              if (href.startsWith('/')) {
-                href = baseUrl + href;
-              }
-              return href;
-            })
-            .filter(href => 
-              href.startsWith(baseUrl) && 
-              !href.includes('#') && 
-              !href.endsWith('.pdf') && 
-              !href.endsWith('.zip') && 
-              !href.endsWith('.jpg') && 
-              !href.endsWith('.png')
-            );
-        }, baseUrl);
-        
-        // Add new links to the queue
-        for (const link of links) {
-          if (!visitedUrls.has(link) && !urlsToVisit.includes(link)) {
-            urlsToVisit.push(link);
-          }
-        }
-      }
     }
-    
+
     // Merge PDFs into a single buffer
     if (pdfBuffers.length > 0) {
-      const { PDFDocument } = require('pdf-lib');
-      
+      const { PDFDocument } = require("pdf-lib");
+
       const mergedPdf = await PDFDocument.create();
-      
+
       for (const pdfBuffer of pdfBuffers) {
         const pdf = await PDFDocument.load(pdfBuffer);
-        const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
-        copiedPages.forEach(page => mergedPdf.addPage(page));
+        const copiedPages = await mergedPdf.copyPages(
+          pdf,
+          pdf.getPageIndices(),
+        );
+        copiedPages.forEach((page) => mergedPdf.addPage(page));
       }
-      
+
       const mergedPdfBytes = await mergedPdf.save();
       return {
         content: mergedPdfBytes,
-        pages: pageInfo
+        pages: pageInfo,
       };
     }
-    
-    return { content: Buffer.from(''), pages: [] };
+
+    return { content: Buffer.from(""), pages: [] };
   } catch (error) {
     console.error("Error converting website to PDF:", error);
     throw error;
@@ -133,12 +110,12 @@ async function websiteToPdf(url, username, password, traverseLinks = false, maxP
 // MCP endpoint to convert website to PDF
 app.post("/api/convert", async (req, res) => {
   try {
-    const { 
-      url, 
-      username, 
-      password, 
-      traverseLinks = false, 
-      maxPages = 10 
+    const {
+      url,
+      username,
+      password,
+      traverseLinks = false,
+      maxPages = 10,
     } = req.body;
 
     if (!url) {
@@ -146,17 +123,28 @@ app.post("/api/convert", async (req, res) => {
     }
 
     // Convert website to PDF
-    const result = await websiteToPdf(url, username, password, traverseLinks, maxPages);
+    const result = await websiteToPdf(
+      url,
+      username,
+      password,
+      traverseLinks,
+      maxPages,
+    );
 
     // Set content-type for PDF response
-    res.setHeader('Content-Type', 'application/pdf');
-    
+    res.setHeader("Content-Type", "application/pdf");
+
     // Set a filename for the download
-    const sanitizedUrl = url.replace(/https?:\/\//, '').replace(/[^a-z0-9]/gi, '_');
-    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedUrl}.pdf"`);
-    
+    const sanitizedUrl = url
+      .replace(/https?:\/\//, "")
+      .replace(/[^a-z0-9]/gi, "_");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedUrl}.pdf"`,
+    );
+
     // Send the PDF content
-    res.send(result.content);
+    res.end(Buffer.from(result.content));
   } catch (error) {
     console.error("Error handling request:", error);
     res.status(500).json({ error: "Failed to convert website to PDF" });
@@ -166,13 +154,44 @@ app.post("/api/convert", async (req, res) => {
 // MCP endpoint to traverse website and return URLs
 app.post("/api/traverse", async (req, res) => {
   try {
-    const { 
-      url, 
-      username, 
-      password, 
-      maxPages = 10 
+    const {
+      url,
+      username,
+      password,
+      traverseLinks = false,
+      maxPages = 10,
     } = req.body;
 
+    if (!url) {
+      return res.status(400).json({ error: "URL is required" });
+    }
+
+    urlList = await traverseWebsite(url, username, password, true, maxPages);
+
+    res.json({
+      success: true,
+      message: `Website traversed successfully (found ${urlList.length} URLs)`,
+      urls: urlList,
+    });
+  } catch (error) {
+    console.error("Error traversing website:", error);
+    res.status(500).json({ error: "Failed to traverse website" });
+  }
+});
+
+// Function to traverse website and return a list of urls
+async function traverseWebsite(
+  url,
+  username,
+  password,
+  traverseLinks,
+  maxPages = 10,
+) {
+  console.log("url: ", url, typeof url);
+  console.log("traverseLinks: ", traverseLinks, typeof traverseLinks);
+  console.log("maxPages: ", maxPages, typeof maxPages);
+
+  try {
     if (!url) {
       return res.status(400).json({ error: "URL is required" });
     }
@@ -190,14 +209,14 @@ app.post("/api/traverse", async (req, res) => {
       const visitedUrls = new Set();
       const urlsToVisit = [url];
       const urlList = [];
-      
+
       while (urlsToVisit.length > 0 && visitedUrls.size < maxPages) {
         const currentUrl = urlsToVisit.shift();
-        
+
         if (visitedUrls.has(currentUrl)) continue;
         visitedUrls.add(currentUrl);
         urlList.push(currentUrl);
-        
+
         console.log(`Visiting: ${currentUrl}`);
 
         // Navigate to the URL
@@ -207,35 +226,34 @@ app.post("/api/traverse", async (req, res) => {
         if (username && password && visitedUrls.size === 1) {
           await page.type('input[name="username"]', username);
           await page.type('input[name="password"]', password);
-          await Promise.all([
-            page.click('button[type="submit"]'),
-          ]);
+          await Promise.all([page.click('button[type="submit"]')]);
         }
 
         // Ensure the page is fully loaded
         await page.waitForTimeout(2000);
-        
+
         // Collect links from the page
         const baseUrl = new URL(currentUrl).origin;
         const links = await page.evaluate((baseUrl) => {
-          return Array.from(document.querySelectorAll('a[href]'))
-            .map(a => {
+          return Array.from(document.querySelectorAll("a[href]"))
+            .map((a) => {
               let href = a.href;
-              if (href.startsWith('/')) {
+              if (href.startsWith("/")) {
                 href = baseUrl + href;
               }
               return href;
             })
-            .filter(href => 
-              href.startsWith(baseUrl) && 
-              !href.includes('#') && 
-              !href.endsWith('.pdf') && 
-              !href.endsWith('.zip') && 
-              !href.endsWith('.jpg') && 
-              !href.endsWith('.png')
+            .filter(
+              (href) =>
+                href.startsWith(baseUrl) &&
+                !href.includes("#") &&
+                !href.endsWith(".pdf") &&
+                !href.endsWith(".zip") &&
+                !href.endsWith(".jpg") &&
+                !href.endsWith(".png"),
             );
         }, baseUrl);
-        
+
         // Add new links to the queue
         for (const link of links) {
           if (!visitedUrls.has(link) && !urlsToVisit.includes(link)) {
@@ -243,12 +261,9 @@ app.post("/api/traverse", async (req, res) => {
           }
         }
       }
-      
-      res.json({
-        success: true,
-        message: `Website traversed successfully (found ${urlList.length} URLs)`,
-        urls: urlList
-      });
+
+      console.log(urlList);
+      return urlList;
     } finally {
       await browser.close();
     }
@@ -256,10 +271,15 @@ app.post("/api/traverse", async (req, res) => {
     console.error("Error traversing website:", error);
     res.status(500).json({ error: "Failed to traverse website" });
   }
-});
+}
 
-// Function to convert website to Markdown
-async function websiteToMarkdown(url, username, password, traverseLinks = false, maxPages = 10) {
+async function websiteToMarkdown(
+  url,
+  username,
+  password,
+  traverseLinks = false,
+  maxPages = 10,
+) {
   const browser = await puppeteer.launch({
     headless: "false",
     defaultViewport: null,
@@ -271,18 +291,24 @@ async function websiteToMarkdown(url, username, password, traverseLinks = false,
   try {
     const page = await browser.newPage();
     const turndownService = new TurndownService();
-    
+
     const visitedUrls = new Set();
-    const urlsToVisit = [url];
+    const urlsToVisit = await traverseWebsite(
+      url,
+      username,
+      password,
+      traverseLinks,
+      maxPages,
+    );
     const markdownContents = [];
     const pageInfo = [];
-    
+
     while (urlsToVisit.length > 0 && visitedUrls.size < maxPages) {
       const currentUrl = urlsToVisit.shift();
-      
+
       if (visitedUrls.has(currentUrl)) continue;
       visitedUrls.add(currentUrl);
-      
+
       console.log(`Visiting: ${currentUrl}`);
 
       // Navigate to the URL
@@ -293,9 +319,7 @@ async function websiteToMarkdown(url, username, password, traverseLinks = false,
         // This is a simplified login flow and might need customization based on the target site
         await page.type('input[name="username"]', username);
         await page.type('input[name="password"]', password);
-        await Promise.all([
-          page.click('button[type="submit"]'),
-        ]);
+        await Promise.all([page.click('button[type="submit"]')]);
       }
 
       // Ensure the page is fully loaded
@@ -305,34 +329,35 @@ async function websiteToMarkdown(url, username, password, traverseLinks = false,
       const content = await page.content();
       const title = await page.title();
       const markdown = turndownService.turndown(content);
-      
+
       // Create markdown content with the page title and URL as header
       const pageMarkdown = `# ${title}\n\nURL: ${currentUrl}\n\n${markdown}`;
       markdownContents.push(pageMarkdown);
       pageInfo.push({ url: currentUrl, title });
-      
+
       // If traversing links is enabled, collect links from the page
       if (traverseLinks) {
         const baseUrl = new URL(currentUrl).origin;
         const links = await page.evaluate((baseUrl) => {
-          return Array.from(document.querySelectorAll('a[href]'))
-            .map(a => {
+          return Array.from(document.querySelectorAll("a[href]"))
+            .map((a) => {
               let href = a.href;
-              if (href.startsWith('/')) {
+              if (href.startsWith("/")) {
                 href = baseUrl + href;
               }
               return href;
             })
-            .filter(href => 
-              href.startsWith(baseUrl) && 
-              !href.includes('#') && 
-              !href.endsWith('.pdf') && 
-              !href.endsWith('.zip') && 
-              !href.endsWith('.jpg') && 
-              !href.endsWith('.png')
+            .filter(
+              (href) =>
+                href.startsWith(baseUrl) &&
+                !href.includes("#") &&
+                !href.endsWith(".pdf") &&
+                !href.endsWith(".zip") &&
+                !href.endsWith(".jpg") &&
+                !href.endsWith(".png"),
             );
         }, baseUrl);
-        
+
         // Add new links to the queue
         for (const link of links) {
           if (!visitedUrls.has(link) && !urlsToVisit.includes(link)) {
@@ -341,17 +366,17 @@ async function websiteToMarkdown(url, username, password, traverseLinks = false,
         }
       }
     }
-    
+
     // Merge markdown content
     if (markdownContents.length > 0) {
-      const mergedContent = markdownContents.join('\n\n---\n\n');
+      const mergedContent = markdownContents.join("\n\n---\n\n");
       return {
         content: mergedContent,
-        pages: pageInfo
+        pages: pageInfo,
       };
     }
-    
-    return { content: '', pages: [] };
+
+    return { content: "", pages: [] };
   } catch (error) {
     console.error("Error converting website to Markdown:", error);
     throw error;
@@ -363,12 +388,12 @@ async function websiteToMarkdown(url, username, password, traverseLinks = false,
 // MCP endpoint to convert website to Markdown
 app.post("/api/to-markdown", async (req, res) => {
   try {
-    const { 
-      url, 
-      username, 
-      password, 
-      traverseLinks = false, 
-      maxPages = 10 
+    const {
+      url,
+      username,
+      password,
+      traverseLinks = false,
+      maxPages = 10,
     } = req.body;
 
     if (!url) {
@@ -376,15 +401,26 @@ app.post("/api/to-markdown", async (req, res) => {
     }
 
     // Convert website to Markdown
-    const result = await websiteToMarkdown(url, username, password, traverseLinks, maxPages);
+    const result = await websiteToMarkdown(
+      url,
+      username,
+      password,
+      traverseLinks,
+      maxPages,
+    );
 
     // Set content-type for text response
-    res.setHeader('Content-Type', 'text/markdown');
-    
+    res.setHeader("Content-Type", "text/markdown");
+
     // Set a filename for the download
-    const sanitizedUrl = url.replace(/https?:\/\//, '').replace(/[^a-z0-9]/gi, '_');
-    res.setHeader('Content-Disposition', `attachment; filename="${sanitizedUrl}.md"`);
-    
+    const sanitizedUrl = url
+      .replace(/https?:\/\//, "")
+      .replace(/[^a-z0-9]/gi, "_");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${sanitizedUrl}.md"`,
+    );
+
     // Send the Markdown content
     res.send(result.content);
   } catch (error) {

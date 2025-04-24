@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "conigurations": [
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "launch program",
+      "skipfiles": ["<node_internals>/**"],
+      "program": "${workspacefolder}\\src\\index.js"
+    }
+  ]
+}
